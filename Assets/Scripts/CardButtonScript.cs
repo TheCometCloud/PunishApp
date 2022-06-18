@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -19,11 +19,11 @@ public class CardButtonScript : MonoBehaviour
     void Update()
     {
         var hand = manager.GetComponent<GameManager>().Hand;
+        
         if (index >= hand.Count)
         {
             GetComponent<Button>().interactable = false;
         }
-
         else 
         {
             GetComponent<Button>().interactable = true;

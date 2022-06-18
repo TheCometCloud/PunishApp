@@ -7,9 +7,21 @@ namespace PlayerSlayer
 {
     public class Game
     {
+        // Public Fields
         public Slayer Guest { get; set; }
-        public Slayer User { get; set; }
-        Stack<Card> Deck { get; set; }
+        public Slayer Host { get; set; }
+
+        public int? HostLock;
+        public int? GuestLock;
+
+        public bool GameOver;
+        public int Victor;
+
+        public bool? HostRematch = null;
+        public bool? GuestRematch = null;
+
+        public int MaxHealth = 3;
+
         public static Card Nothing = new Card() { Name = "Nothing", Priority = 10 };
         public static Card[] Cards = {
                 new Card() { Name = "Roll", Priority = 2, StunAfter = false },
@@ -20,9 +32,7 @@ namespace PlayerSlayer
         };
         
         int breaths;
-
-        public int? HostLock;
-        public int? GuestLock;
+        Stack<Card> Deck { get; set; }
 
         private static System.Random rng = new System.Random();
 
@@ -34,7 +44,7 @@ namespace PlayerSlayer
         public void Initialize()
         {
             Guest = new Slayer();
-            User = new Slayer();
+            Host = new Slayer();
 
             Debug.Log($"Very well. Prepare to lose.");
 
@@ -49,11 +59,19 @@ namespace PlayerSlayer
             breaths++;
             ProgressTurn();
 
-            if (breaths >= 4)
+            if (breaths >= 4 && !GameOver)
             {
                 breaths = 0;
                 ShuffleDeck();
                 FillHands();
+                Guest.Health++;
+                Host.Health++;
+
+                if (Guest.Health > MaxHealth)
+                    Guest.Health = MaxHealth;
+                
+                if (Host.Health > MaxHealth)
+                    Host.Health = MaxHealth;
             }
 
             GuestLock = null;
@@ -76,9 +94,9 @@ namespace PlayerSlayer
 
         public void FillHands()
         {
-            while (User.Hand.Count < 5)
+            while (Host.Hand.Count < 5)
             {
-                User.Hand.Add(Deck.Pop());
+                Host.Hand.Add(Deck.Pop());
             }
 
             while (Guest.Hand.Count < 5)
@@ -110,30 +128,14 @@ namespace PlayerSlayer
 
         public void DisplayState()
         {
-            if (User.Health > 0 && Guest.Health > 0)
-            {
-                Debug.Log($"You have {User.Health} health. I have {Guest.Health} health.");
-                Debug.Log($"These are the cards in your hand:");
-                for (int i = 0; i < User.Hand.Count; i++)
-                {
-                    Debug.Log($"[{i}]: {User.Hand[i].Name}");
-                }
-            }
-            else if (User.Health <= 0)
-            {
-                Debug.Log("Ha! I win.");
-            }
-            else
-            {
-                Debug.Log("How could you win? Did you cheat?");
-            }
+            GameOver = !(Host.Health > 0 && Guest.Health > 0);
         }
 
         public void ProgressTurn()
         {
             bool clashed = false;
 
-            if (HostLock >= User.Hand.Count)
+            if (HostLock >= Host.Hand.Count)
             {
                 Debug.Log("Invalid index.");
                 DisplayState();
@@ -146,10 +148,10 @@ namespace PlayerSlayer
             }
 
             Card cpuPlay = Guest.Stunned ? Nothing : Guest.Hand[GuestLock ?? 0];
-            Card userPlay = User.Stunned ? Nothing : User.Hand[HostLock ?? 0];
+            Card HostPlay = Host.Stunned ? Nothing : Host.Hand[HostLock ?? 0];
 
             Guest.Stunned = false;
-            User.Stunned = false;
+            Host.Stunned = false;
 
             if (!(cpuPlay == Nothing))
             {
@@ -157,16 +159,16 @@ namespace PlayerSlayer
                 Deck.Push(cpuPlay);
             }
 
-            if (!(userPlay == Nothing))
+            if (!(HostPlay == Nothing))
             {
-                User.Hand.Remove(userPlay);
-                Deck.Push(userPlay);
+                Host.Hand.Remove(HostPlay);
+                Deck.Push(HostPlay);
             }
 
-            Debug.Log($"You played {userPlay.Name}. I played {cpuPlay.Name}.");
+            Debug.Log($"You played {HostPlay.Name}. I played {cpuPlay.Name}.");
 
-            List<Card> plays = new List<Card>() { cpuPlay, userPlay };
-            clashed = cpuPlay.Priority == userPlay.Priority;
+            List<Card> plays = new List<Card>() { cpuPlay, HostPlay };
+            clashed = cpuPlay.Priority == HostPlay.Priority;
             plays = plays.OrderBy(c => c.Priority).ToList();
 
             foreach(Card card in plays)
@@ -176,8 +178,8 @@ namespace PlayerSlayer
                     continue;
                 }
 
-                Slayer target = card == cpuPlay ? User : Guest;
-                Slayer actor = card == cpuPlay ? Guest : User;
+                Slayer target = card == cpuPlay ? Host : Guest;
+                Slayer actor = card == cpuPlay ? Guest : Host;
 
                 switch(card.Priority)
                 {
@@ -219,7 +221,7 @@ namespace PlayerSlayer
             }
 
             Guest.Cleanse();
-            User.Cleanse();
+            Host.Cleanse();
         }
     }
 }

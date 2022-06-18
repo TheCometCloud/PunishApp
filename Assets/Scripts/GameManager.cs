@@ -16,9 +16,18 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
 {
     #region Public Fields
 
-    public Game Game;
+    public static Game Game;
 
     public const byte PlayCardEventCode = 1;
+    public const byte RematchEventCode  = 2;
+
+    public List<Card>   Hand            => PhotonNetwork.IsMasterClient ? Game.Host.Hand : Game.Guest.Hand;
+    public List<Card>   TheirHand       => PhotonNetwork.IsMasterClient ? Game.Guest.Hand : Game.Host.Hand;
+    public int          MyHealth        => PhotonNetwork.IsMasterClient ? Game.Host.Health : Game.Guest.Health;
+    public int          TheirHealth     => PhotonNetwork.IsMasterClient ? Game.Guest.Health : Game.Host.Health;
+    public bool         IAmMaster       => PhotonNetwork.IsMasterClient;
+    public bool?        MyRematch       => PhotonNetwork.IsMasterClient ? Game.HostRematch : Game.GuestRematch;
+    public bool?        TheirRematch    => PhotonNetwork.IsMasterClient ? Game.GuestRematch : Game.HostRematch;
 
     #endregion
 
@@ -28,8 +37,8 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
     {
         if (stream.IsWriting)
         {
-            stream.SendNext(Game.User.Health);
-            stream.SendNext(Game.User.Hand.Select(c => c.Priority).ToArray());
+            stream.SendNext(Game.Host.Health);
+            stream.SendNext(Game.Host.Hand.Select(c => c.Priority).ToArray());
 
             stream.SendNext(Game.Guest.Health);
             stream.SendNext(Game.Guest.Hand.Select(c => c.Priority).ToArray());
@@ -37,8 +46,8 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
         else
         {
             // Network player, receive data
-            Game.User.Health = (int)stream.ReceiveNext();
-            Game.User.Hand = ((int[])stream.ReceiveNext()).Select(p => Game.Cards.Where(c => c.Priority == p).First()).ToList();
+            Game.Host.Health = (int)stream.ReceiveNext();
+            Game.Host.Hand = ((int[])stream.ReceiveNext()).Select(p => Game.Cards.Where(c => c.Priority == p).First()).ToList();
 
             Game.Guest.Health = (int)stream.ReceiveNext();
             Game.Guest.Hand = ((int[])stream.ReceiveNext()).Select(p => Game.Cards.Where(c => c.Priority == p).First()).ToList();
@@ -63,42 +72,72 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
         SceneManager.LoadScene(0);
     }
 
-    public List<Card> Hand => PhotonNetwork.IsMasterClient ? Game.User.Hand : Game.Guest.Hand;
-    public List<Card> TheirHand => PhotonNetwork.IsMasterClient ? Game.Guest.Hand : Game.User.Hand;
-    public int MyHealth => PhotonNetwork.IsMasterClient ? Game.User.Health : Game.Guest.Health;
-    public int TheirHealth => PhotonNetwork.IsMasterClient ? Game.Guest.Health : Game.User.Health;
-    public bool IAmMaster => PhotonNetwork.IsMasterClient;
-
     public void PlayCard(int index)
     {
         object[] content = new object[] { index };
         RaiseEventOptions raiseEventOptions = new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient };
         PhotonNetwork.RaiseEvent(PlayCardEventCode, content, raiseEventOptions, SendOptions.SendReliable); 
     }
+    
+    public void DecideRematch(bool rematch)
+    {
+        object[] content = new object[] { rematch };
+        RaiseEventOptions raiseEventOptions = new RaiseEventOptions { Receivers = ReceiverGroup.MasterClient };
+        PhotonNetwork.RaiseEvent(RematchEventCode, content, raiseEventOptions, SendOptions.SendReliable); 
+    }
 
     public void OnEvent(EventData photonEvent)
     {
         byte eventCode = photonEvent.Code;
 
-        if (eventCode == PlayCardEventCode)
+        switch (eventCode)
         {
-            Debug.Log("It's happening.");
-            object[] data = (object[])photonEvent.CustomData;
-
-            int index = (int)data[0];
-            switch(photonEvent.Sender)
+            case PlayCardEventCode:
             {
-                default:
-                    break;
-                
-                case 1:
-                    Game.HostLock = index;
-                    break;
+                Debug.Log("It's happening.");
+                object[] data = (object[])photonEvent.CustomData;
 
-                case 2:
-                    Game.GuestLock = index;
-                    break;
+                int index = (int)data[0];
+                switch(photonEvent.Sender)
+                {
+                    default:
+                        break;
+                    
+                    case 1:
+                        Game.HostLock = index;
+                        break;
+
+                    case 2:
+                        Game.GuestLock = index;
+                        break;
+                }
+                break;
             }
+
+            case RematchEventCode:
+            {
+                Debug.Log("Running it back.");
+                object[] data = (object[])photonEvent.CustomData;
+
+                bool rematch = (bool)data[0];
+                switch(photonEvent.Sender)
+                {
+                    default:
+                        break;
+                    
+                    case 1:
+                        Game.HostRematch = rematch;
+                        break;
+
+                    case 2:
+                        Game.GuestRematch = rematch;
+                        break;
+                }
+                break;
+            }
+
+            default:
+                break;
         }
     }
 
@@ -108,7 +147,8 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
 
     void Start()
     {
-        Game = new Game();
+        if (Game is null)
+            Game = new Game();
     }
 
     void Update()
@@ -116,6 +156,26 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
         if (!(Game.GuestLock is null || Game.HostLock is null))
         {
             Game.TriggerTurn();
+        }
+
+        if (Game.GameOver)
+        {
+            PhotonNetwork.LoadLevel("Match Result");
+            Game.GameOver = false;
+        }
+
+        if (Game.GuestRematch is null || Game.HostRematch is null)
+        {
+            // pass
+        }
+        else if ((bool)Game.GuestRematch && (bool)Game.HostRematch)
+        {
+            PhotonNetwork.LoadLevel("Room for 1");
+            Game = new Game();
+        }
+        else
+        {
+            LeaveRoom();
         }
     }
 
@@ -125,11 +185,6 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
 
     void LoadArena()
     {
-        if (!PhotonNetwork.IsMasterClient)
-        {
-            Debug.LogError("PhotonNetwork : Trying to Load a level but we are not the master Client");
-        }
-        Debug.LogFormat("PhotonNetwork : Loading Level : 1", PhotonNetwork.CurrentRoom.PlayerCount);
         PhotonNetwork.LoadLevel("Room for 1");
     }
 
@@ -140,6 +195,11 @@ public class GameManager : MonoBehaviourPunCallbacks, IOnEventCallback, IPunObse
     public void LeaveRoom()
     {
         PhotonNetwork.LeaveRoom();
+    }
+
+    public void NewMatch()
+    {
+        LoadArena();
     }
 
     #endregion

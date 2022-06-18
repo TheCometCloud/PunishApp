@@ -20,4 +20,7 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/Room for 4.unity
     guid: d445b9f72556b6d4f8389f2068637bd5
+  - enabled: 1
+    path: Assets/Scenes/Match Result.unity
+    guid: 639141eafd915cc4a8d7981727ae5fda
   m_configObjects: {}
